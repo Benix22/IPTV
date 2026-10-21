@@ -33,7 +33,6 @@
         <activity
             android:name=".SetupActivity"
             android:exported="false"
-            android:screenOrientation="landscape"
             android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

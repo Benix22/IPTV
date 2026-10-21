@@ -86,6 +86,15 @@ class MainActivity : AppCompatActivity() {
         status = findViewById(R.id.status)
         info = findViewById(R.id.info)
 
+        // Control táctil (móvil o tableta): tocar la pantalla abre o cierra el menú.
+        findViewById<View>(R.id.root).setOnClickListener {
+            when {
+                panelVisible -> closePanel()
+                all.isEmpty() -> openSetup()
+                else -> openPanel()
+            }
+        }
+
         groupAdapter.label = { i -> groups[i] }
         channelAdapter.label = { i ->
             val c = shown[i]
@@ -205,7 +214,7 @@ class MainActivity : AppCompatActivity() {
         } else ""
         showStatus(
             "No se pudo reproducir «${ch.name}»\n${error.errorCodeName}$http\n\n" +
-                "Pulsa OK para elegir otro canal."
+                "Toca la pantalla o pulsa OK para elegir otro canal."
         )
     }
 
@@ -280,7 +289,7 @@ class MainActivity : AppCompatActivity() {
                     if (all.isEmpty()) {
                         showStatus(
                             "No se pudo cargar la lista\n${e.message ?: e.javaClass.simpleName}\n\n" +
-                                "Pulsa OK para abrir los ajustes."
+                                "Toca la pantalla o pulsa OK para abrir los ajustes."
                         )
                     } else if (!silent) {
                         showStatus("No se pudo actualizar: ${e.message ?: e.javaClass.simpleName}")
