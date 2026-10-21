@@ -38,6 +38,18 @@ class Prefs(context: Context) {
         get() = str("token")
         set(v) = put("token", v)
 
+    var xtreamServer: String
+        get() = str("xtreamServer")
+        set(v) = put("xtreamServer", v)
+
+    var xtreamUser: String
+        get() = str("xtreamUser")
+        set(v) = put("xtreamUser", v)
+
+    var xtreamPass: String
+        get() = str("xtreamPass")
+        set(v) = put("xtreamPass", v)
+
     var userAgent: String
         get() = str("userAgent", DEFAULT_UA).ifBlank { DEFAULT_UA }
         set(v) = put("userAgent", v)
