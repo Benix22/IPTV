@@ -782,7 +782,11 @@ class MainActivity : AppCompatActivity() {
                 hideStatus()
                 openPanel()
             }
-            else -> super.onBackPressed()
+            else -> AlertDialog.Builder(this)
+                .setTitle("¿Salir de la app?")
+                .setPositiveButton("Salir") { _, _ -> finish() }
+                .setNegativeButton("Cancelar", null)
+                .show()
         }
     }
 }
