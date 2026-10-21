@@ -100,7 +100,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .seg button[aria-selected=true]{border-color:var(--accent);color:var(--accent)}
 .pane{display:flex;flex-direction:column;gap:8px}
 .pane[hidden]{display:none}
-.pane input[type=url],.pane textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.pane input[type=url],.pane input[type=password],.pane textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 .pane textarea{min-height:140px;font:12px/1.4 var(--mono);resize:vertical}
 .drop{border:1.5px dashed var(--line);border-radius:8px;padding:26px 12px;text-align:center;color:var(--muted)}
 .drop.over{border-color:var(--accent);color:var(--fg)}
@@ -108,6 +108,8 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .err-msg{color:var(--live);font-size:13px;margin:0;min-height:1em}
 .dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
 
+.tok{display:flex;gap:8px}
+.tok input{flex:1;min-width:0;width:auto}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:13px;z-index:50}
 .toast[hidden]{display:none}
 
@@ -127,6 +129,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 <header class="top">
   <div class="brand">Parrilla<small>Reproductor IPTV</small></div>
   <div class="srcinfo" id="srcinfo">Sin lista cargada</div>
+  <span class="chip" id="sync" title="Dónde se guardan tus datos">Solo este navegador</span>
   <button class="btn primary" id="btnLoad" type="button">Cargar lista</button>
 </header>
 
@@ -202,6 +205,11 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
       <textarea id="textIn" placeholder="#EXTM3U&#10;#EXTINF:-1 tvg-logo=&quot;&quot; group-title=&quot;Noticias&quot;,Mi canal&#10;https://..." aria-label="Contenido de la lista"></textarea>
     </div>
 
+    <div class="pane" id="tokRow" hidden>
+      <label class="note" for="tokIn">Este servidor pide un token de acceso.</label>
+      <div class="tok"><input id="tokIn" type="password" autocomplete="off" placeholder="Token"><button class="btn" id="tokSave" type="button">Guardar token</button></div>
+    </div>
+
     <p class="err-msg" id="dErr" role="alert"></p>
   </div>
   <div class="dlg-f">
@@ -249,16 +257,64 @@ function parseM3U(text){
 /* ---------- almacenamiento ---------- */
 const store={
   get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}},
-  set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){return false;}},
+  set(k,v){const s=JSON.stringify(v);remote.push(k,s);try{localStorage.setItem(k,s);return true;}catch(e){return false;}},
   raw(k){try{return localStorage.getItem(k);}catch(e){return null;}},
-  setRaw(k,v){try{localStorage.setItem(k,v);return true;}catch(e){return false;}},
-  del(k){try{localStorage.removeItem(k);}catch(e){}}
+  setRaw(k,v){remote.push(k,v);try{localStorage.setItem(k,v);return true;}catch(e){return false;}},
+  del(k){remote.drop(k);try{localStorage.removeItem(k);}catch(e){}}
+};
+
+/* ---------- servidor (opcional) ----------
+   Si la página se sirve con server.js, lista, favoritos y recientes se guardan
+   también en la base de datos. Sin servidor (archivo local, hosting estático)
+   todo sigue en este navegador. */
+const SYNC_KEYS=['parrilla.text','parrilla.label','parrilla.fav','parrilla.recent'];
+const remote={
+  on:false, needsToken:false, timers:{},
+  token:(()=>{try{return localStorage.getItem('parrilla.token')||'';}catch(e){return '';}})(),
+  headers(json){const h={}; if(this.token) h.Authorization='Bearer '+this.token; if(json) h['Content-Type']='application/json'; return h;},
+  chip(kind){
+    const c=document.querySelector('#sync'); if(!c) return;
+    c.className='chip'+(kind==='ok'?' live':kind==='err'||kind==='auth'?' err':'');
+    c.textContent=kind==='ok'?'Guardado en servidor':kind==='err'?'Error al guardar':kind==='auth'?'Falta token':'Solo este navegador';
+  },
+  async init(){
+    try{
+      const r=await fetch('api/state',{headers:this.headers(false),cache:'no-store'});
+      if(r.status===401){this.needsToken=true; this.chip('auth'); return null;}
+      if(!r.ok) return null;
+      const j=await r.json();
+      if(!j||typeof j.kv!=='object'||j.kv===null) return null;
+      this.on=true; this.chip('ok'); return j.kv;
+    }catch(e){return null;}
+  },
+  push(k,v){
+    if(!this.on||SYNC_KEYS.indexOf(k)<0) return;
+    clearTimeout(this.timers[k]);
+    this.timers[k]=setTimeout(()=>this.send(k,'PUT',v),400);
+  },
+  drop(k){
+    if(!this.on||SYNC_KEYS.indexOf(k)<0) return;
+    clearTimeout(this.timers[k]);
+    this.timers[k]=setTimeout(()=>this.send(k,'DELETE'),0);
+  },
+  async send(k,method,v){
+    try{
+      const put=method==='PUT';
+      const r=await fetch('api/kv/'+encodeURIComponent(k),{
+        method:method, headers:this.headers(put),
+        body:put?JSON.stringify({value:v}):undefined,
+        keepalive:!put||v.length<60000
+      });
+      if(r.status===401){this.needsToken=true; this.chip('auth'); return;}
+      this.chip(r.ok?'ok':'err');
+    }catch(e){this.chip('err');}
+  }
 };
 
 /* ---------- estado ---------- */
 let channels=[], byUrl=new Map(), filtered=[], shown=0, current=null;
 let tab='all', hls=null, ts=null, label='';
-const favs=new Set(store.get('parrilla.fav',[]));
+let favs=new Set(store.get('parrilla.fav',[]));
 let recent=store.get('parrilla.recent',[]);
 const CHUNK=150;
 
@@ -280,7 +336,7 @@ function logoHTML(c){
 }
 
 /* ---------- lista ---------- */
-function setPlaylist(text,lbl){
+function setPlaylist(text,lbl,persist){
   const parsed=parseM3U(text);
   if(!parsed.length) throw new Error('No se encontró ningún canal en ese contenido.');
   channels=parsed; label=lbl||'Lista';
@@ -292,11 +348,15 @@ function setPlaylist(text,lbl){
     [...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'es')).map(([g,n])=>
       '<option value="'+esc(g)+'">'+esc(g)+' ('+fmt(n)+')</option>').join('');
   $('#srcinfo').textContent=label+' · '+fmt(channels.length)+' canales · '+fmt(groups.size)+' grupos';
-  if(text.length<4500000){
-    store.setRaw('parrilla.text',text); store.set('parrilla.label',label);
-  } else {
-    store.del('parrilla.text');
-    toast('Lista muy grande: no se guardará en el navegador.');
+  if(persist!==false){
+    store.set('parrilla.label',label);
+    if(text.length<4500000){
+      store.setRaw('parrilla.text',text);
+    } else {
+      try{localStorage.removeItem('parrilla.text');}catch(e){}
+      if(remote.on) remote.push('parrilla.text',text);
+      else toast('Lista muy grande: no se guardará en el navegador.');
+    }
   }
   applyFilters();
 }
@@ -531,7 +591,7 @@ $('#dGo').onclick=async()=>{
 
 $('#dClear').onclick=()=>{
   store.del('parrilla.text'); store.del('parrilla.label');
-  $('#dErr').textContent='Lista guardada eliminada de este navegador.';
+  $('#dErr').textContent=remote.on?'Lista guardada eliminada del servidor y de este navegador.':'Lista guardada eliminada de este navegador.';
 };
 
 const drop=$('#drop');
@@ -542,14 +602,42 @@ window.addEventListener('dragover',e=>e.preventDefault());
 window.addEventListener('drop',e=>{e.preventDefault(); if(e.target!==drop&&e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);});
 
 /* ---------- arranque ---------- */
-syncFavUI(); setStatus('idle'); applyFilters();
-const saved=store.raw('parrilla.text');
-if(saved){
-  try{ setPlaylist(saved,store.get('parrilla.label','Lista guardada')); }
-  catch(e){ openDlg(); }
-} else {
-  openDlg();
+$('#tokSave').onclick=()=>{
+  const v=$('#tokIn').value.trim(); if(!v) return;
+  try{localStorage.setItem('parrilla.token',v);}catch(e){}
+  location.reload();
+};
+
+async function boot(){
+  syncFavUI(); setStatus('idle'); applyFilters();
+  const kv=await remote.init();
+  let saved=store.raw('parrilla.text'), lbl=store.get('parrilla.label','Lista guardada');
+  if(kv){
+    /* El servidor manda. Lo que solo exista en este navegador se sube una vez. */
+    for(const k of SYNC_KEYS){
+      if(k in kv){ try{localStorage.setItem(k,kv[k]);}catch(e){} }
+      else { const loc=store.raw(k); if(loc!=null) remote.send(k,'PUT',loc); }
+    }
+    if('parrilla.fav' in kv){ try{ favs=new Set(JSON.parse(kv['parrilla.fav'])); }catch(e){} }
+    if('parrilla.recent' in kv){ try{ recent=JSON.parse(kv['parrilla.recent']); }catch(e){} }
+    if('parrilla.text' in kv) saved=kv['parrilla.text'];
+    if('parrilla.label' in kv){ try{ lbl=JSON.parse(kv['parrilla.label'])||lbl; }catch(e){} }
+    syncFavUI();
+  }
+  if(saved){
+    try{ setPlaylist(saved,lbl,false); }
+    catch(e){ openDlg(); }
+  } else {
+    applyFilters();
+    openDlg();
+  }
+  if(remote.needsToken){
+    $('#tokRow').hidden=false;
+    if(!dlg.open) openDlg();
+    $('#dErr').textContent='El servidor guarda tus datos pero pide un token de acceso.';
+  }
 }
+boot();
 })();
 </script>
 </body>
