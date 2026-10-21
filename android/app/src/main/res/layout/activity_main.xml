@@ -61,6 +61,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:text="Actualizar lista" />
+
+            <Button
+                android:id="@+id/btnTracks"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="Audio y subtítulos" />
         </LinearLayout>
 
         <LinearLayout

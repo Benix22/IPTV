@@ -12,8 +12,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.appcompat.app.AlertDialog
+import java.util.Locale
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -146,6 +151,7 @@ class MainActivity : AppCompatActivity() {
         btnLive.setOnClickListener { switchSection(Section.LIVE) }
         btnMovies.setOnClickListener { switchSection(Section.MOVIES) }
         btnSeries.setOnClickListener { switchSection(Section.SERIES) }
+        findViewById<Button>(R.id.btnTracks).setOnClickListener { showTrackMenu() }
         findViewById<Button>(R.id.btnSettings).setOnClickListener { openSetup() }
         findViewById<Button>(R.id.btnRefresh).setOnClickListener {
             if (section == Section.LIVE) {
@@ -242,6 +248,7 @@ class MainActivity : AppCompatActivity() {
         if (!vodPlaying) prefs.lastUrl = ch.url
         showOsd(ch.name)
         val p = player ?: return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().clearOverrides().build()
         p.setMediaItem(MediaItem.fromUri(ch.url), if (startMs > 0) startMs else C.TIME_UNSET)
         p.prepare()
         p.playWhenReady = true
@@ -287,6 +294,84 @@ class MainActivity : AppCompatActivity() {
         if (!inEpisodes) return
         val i = shown.indexOfFirst { it.url == current?.url }
         if (i >= 0 && i + 1 < shown.size) play(shown[i + 1])
+    }
+
+    // ---------------------------------------------------------------- audio y subtítulos
+
+    private fun trackName(f: Format, n: Int): String {
+        var name = f.label
+        if (name.isNullOrBlank()) {
+            val lang = f.language
+            if (!lang.isNullOrBlank() && lang != "und") {
+                name = Locale.forLanguageTag(lang).getDisplayLanguage(Locale.getDefault())
+                    .replaceFirstChar { it.uppercase() }
+            }
+        }
+        if (name.isNullOrBlank()) name = "Pista $n"
+        if (f.channelCount > 2) name += " (${f.channelCount} canales)"
+        return name
+    }
+
+    private fun showTrackMenu() {
+        val p = player
+        if (p == null || current == null) {
+            showOsd("Primero reproduce algo")
+            return
+        }
+        closePanel()
+        AlertDialog.Builder(this)
+            .setTitle("Audio y subtítulos")
+            .setItems(arrayOf("Audio", "Subtítulos")) { _, which ->
+                chooseTrack(if (which == 0) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT)
+            }
+            .show()
+    }
+
+    private fun chooseTrack(type: Int) {
+        val p = player ?: return
+        val isText = type == C.TRACK_TYPE_TEXT
+        val groups = p.currentTracks.groups.filter { it.type == type && it.length > 0 }
+        if (groups.isEmpty()) {
+            showOsd(if (isText) "Este contenido no trae subtítulos" else "Este contenido no trae más audios")
+            return
+        }
+        val names = ArrayList<String>()
+        val picks = ArrayList<Pair<Tracks.Group, Int>?>()
+        var checked = -1
+        if (isText) {
+            names.add("Desactivados")
+            picks.add(null)
+            if (p.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) checked = 0
+        }
+        var n = 1
+        for (g in groups) {
+            for (i in 0 until g.length) {
+                if (!g.isTrackSupported(i)) continue
+                names.add(trackName(g.getTrackFormat(i), n++))
+                picks.add(Pair(g, i))
+                if (g.isTrackSelected(i) && (!isText || checked < 0)) checked = names.size - 1
+            }
+        }
+        if (names.isEmpty()) {
+            showOsd("No hay pistas compatibles")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (isText) "Subtítulos" else "Audio")
+            .setSingleChoiceItems(names.toTypedArray(), checked) { d, which ->
+                val b = p.trackSelectionParameters.buildUpon()
+                val pick = picks[which]
+                if (pick == null) {
+                    b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                } else {
+                    b.setTrackTypeDisabled(type, false)
+                    b.setOverrideForType(TrackSelectionOverride(pick.first.mediaTrackGroup, pick.second))
+                }
+                p.trackSelectionParameters = b.build()
+                showOsd(names[which])
+                d.dismiss()
+            }
+            .show()
     }
 
     private fun togglePause() {
@@ -618,6 +703,11 @@ class MainActivity : AppCompatActivity() {
 
         if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
             if (down) togglePause()
+            return true
+        }
+
+        if (code == KeyEvent.KEYCODE_CAPTIONS || code == KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK) {
+            if (down) showTrackMenu()
             return true
         }
 
