@@ -34,19 +34,6 @@
         android:textSize="26sp"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="@color/osd_bg"
-        android:gravity="center"
-        android:maxWidth="760dp"
-        android:padding="24dp"
-        android:textColor="@color/text"
-        android:textSize="24sp"
-        android:visibility="gone" />
-
     <LinearLayout
         android:id="@+id/panel"
         android:layout_width="wrap_content"
@@ -142,4 +129,18 @@
             android:textColor="@color/muted"
             android:textSize="14sp" />
     </LinearLayout>
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@color/osd_bg"
+        android:gravity="center"
+        android:maxWidth="760dp"
+        android:padding="24dp"
+        android:textColor="@color/text"
+        android:textSize="24sp"
+        android:visibility="gone" />
+
+
 </FrameLayout>

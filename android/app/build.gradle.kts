@@ -11,8 +11,8 @@ android {
         applicationId = "com.benix22.parrilla"
         minSdk = 22
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.2.1"
     }
 
     // Clave fija para que las actualizaciones se instalen encima de la versión anterior.
