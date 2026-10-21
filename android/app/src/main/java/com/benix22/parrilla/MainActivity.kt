@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -28,6 +29,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val ALL = "Todos"
         const val FAV = "★ Favoritos"
+        const val BACK = "◀ Series"
+        const val SERIES_SCHEME = "series://"
     }
 
     private lateinit var prefs: Prefs
@@ -39,17 +42,35 @@ class MainActivity : AppCompatActivity() {
     private lateinit var osd: TextView
     private lateinit var status: TextView
     private lateinit var info: TextView
+    private lateinit var sectionRow: View
+    private lateinit var btnLive: Button
+    private lateinit var btnMovies: Button
+    private lateinit var btnSeries: Button
 
     private var player: ExoPlayer? = null
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
+
+    private var section = Section.LIVE
+    private var liveList: List<Channel> = emptyList()
+    private val lists = HashMap<Section, List<Channel>>()
+    private var loadToken = 0
 
     private var all: List<Channel> = emptyList()
     private var shown: List<Channel> = emptyList()
     private var groups: List<String> = listOf(ALL, FAV)
     private var groupIndex = 0
     private var favs: MutableSet<String> = LinkedHashSet()
+
+    // Episodios de una serie abierta (se guarda la lista de series para volver)
+    private var inEpisodes = false
+    private var savedAll: List<Channel> = emptyList()
+    private var savedGroups: List<String> = emptyList()
+    private var savedIndex = 0
+
     private var current: Channel? = null
+    private var vodPlaying = false
+    private var resumeMs = 0L
     private var retries = 0
     private var panelVisible = false
 
@@ -66,7 +87,15 @@ class MainActivity : AppCompatActivity() {
 
     private val setupLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) refresh(false)
+            if (result.resultCode == RESULT_OK) {
+                // Puede haber cambiado la cuenta: se descartan películas y series guardadas.
+                repo.clearVodCache()
+                lists.clear()
+                section = Section.LIVE
+                inEpisodes = false
+                updateSectionButtons()
+                refresh(false)
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,12 +114,16 @@ class MainActivity : AppCompatActivity() {
         osd = findViewById(R.id.osd)
         status = findViewById(R.id.status)
         info = findViewById(R.id.info)
+        sectionRow = findViewById(R.id.sectionRow)
+        btnLive = findViewById(R.id.btnLive)
+        btnMovies = findViewById(R.id.btnMovies)
+        btnSeries = findViewById(R.id.btnSeries)
 
         // Control táctil (móvil o tableta): tocar la pantalla abre o cierra el menú.
         findViewById<View>(R.id.root).setOnClickListener {
             when {
                 panelVisible -> closePanel()
-                all.isEmpty() -> openSetup()
+                liveList.isEmpty() && all.isEmpty() -> openSetup()
                 else -> openPanel()
             }
         }
@@ -98,7 +131,11 @@ class MainActivity : AppCompatActivity() {
         groupAdapter.label = { i -> groups[i] }
         channelAdapter.label = { i ->
             val c = shown[i]
-            if (favs.contains(c.url)) "★ " + c.name else c.name
+            when {
+                c.url.startsWith(SERIES_SCHEME) -> (if (favs.contains(c.url)) "★ " else "") + c.name + "  ›"
+                favs.contains(c.url) -> "★ " + c.name
+                else -> c.name
+            }
         }
 
         groupList.layoutManager = LinearLayoutManager(this)
@@ -106,12 +143,20 @@ class MainActivity : AppCompatActivity() {
         channelList.layoutManager = LinearLayoutManager(this)
         channelList.adapter = channelAdapter
 
+        btnLive.setOnClickListener { switchSection(Section.LIVE) }
+        btnMovies.setOnClickListener { switchSection(Section.MOVIES) }
+        btnSeries.setOnClickListener { switchSection(Section.SERIES) }
         findViewById<Button>(R.id.btnSettings).setOnClickListener { openSetup() }
         findViewById<Button>(R.id.btnRefresh).setOnClickListener {
-            closePanel()
-            refresh(false)
+            if (section == Section.LIVE) {
+                closePanel()
+                refresh(false)
+            } else {
+                switchSection(section, true)
+            }
         }
 
+        updateSectionButtons()
         refreshLists()
 
         if (!repo.hasSource()) {
@@ -121,7 +166,10 @@ class MainActivity : AppCompatActivity() {
             if (cached != null) {
                 io.execute {
                     val list = M3uParser.parse(cached)
-                    ui.post { setChannels(list) }
+                    ui.post {
+                        liveList = list
+                        if (section == Section.LIVE) setChannels(list, true)
+                    }
                 }
                 refresh(true)
             } else {
@@ -133,11 +181,13 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         startPlayer()
-        current?.let { play(it) }
+        current?.let { play(it, resumeMs) }
+        resumeMs = 0
     }
 
     override fun onStop() {
         super.onStop()
+        resumeMs = if (vodPlaying) (player?.currentPosition ?: 0L) else 0L
         releasePlayer()
     }
 
@@ -166,6 +216,7 @@ class MainActivity : AppCompatActivity() {
                         retries = 0
                         hideStatus()
                     }
+                    Player.STATE_ENDED -> if (vodPlaying) playNextEpisode()
                     else -> {}
                 }
             }
@@ -184,13 +235,14 @@ class MainActivity : AppCompatActivity() {
         player = null
     }
 
-    private fun play(ch: Channel) {
+    private fun play(ch: Channel, startMs: Long = 0L) {
         current = ch
+        vodPlaying = section != Section.LIVE
         retries = 0
-        prefs.lastUrl = ch.url
+        if (!vodPlaying) prefs.lastUrl = ch.url
         showOsd(ch.name)
         val p = player ?: return
-        p.setMediaItem(MediaItem.fromUri(ch.url))
+        p.setMediaItem(MediaItem.fromUri(ch.url), if (startMs > 0) startMs else C.TIME_UNSET)
         p.prepare()
         p.playWhenReady = true
         showStatus("Cargando…")
@@ -214,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         } else ""
         showStatus(
             "No se pudo reproducir «${ch.name}»\n${error.errorCodeName}$http\n\n" +
-                "Toca la pantalla o pulsa OK para elegir otro canal."
+                "Toca la pantalla o pulsa OK para elegir otro."
         )
     }
 
@@ -226,22 +278,57 @@ class MainActivity : AppCompatActivity() {
         } else {
             (i + delta + shown.size) % shown.size
         }
-        play(shown[n])
+        val ch = shown[n]
+        if (!ch.url.startsWith(SERIES_SCHEME)) play(ch)
     }
+
+    /** Al acabar un episodio pasa al siguiente de la misma temporada. */
+    private fun playNextEpisode() {
+        if (!inEpisodes) return
+        val i = shown.indexOfFirst { it.url == current?.url }
+        if (i >= 0 && i + 1 < shown.size) play(shown[i + 1])
+    }
+
+    private fun togglePause() {
+        val p = player ?: return
+        p.playWhenReady = !p.playWhenReady
+        showOsd((if (p.playWhenReady) "▶ " else "⏸ ") + clock(p.currentPosition, p.duration))
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        val p = player ?: return
+        val dur = p.duration
+        var pos = p.currentPosition + deltaMs
+        if (pos < 0) pos = 0
+        if (dur != C.TIME_UNSET && pos > dur) pos = dur
+        p.seekTo(pos)
+        showOsd(clock(pos, dur))
+    }
+
+    private fun fmt(ms: Long): String {
+        val s = ms / 1000
+        val h = s / 3600
+        val m = (s % 3600) / 60
+        val sec = s % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+    }
+
+    private fun clock(pos: Long, dur: Long): String =
+        fmt(pos) + if (dur != C.TIME_UNSET && dur > 0) " / " + fmt(dur) else ""
 
     // ---------------------------------------------------------------- lista
 
-    private fun setChannels(list: List<Channel>) {
+    private fun setChannels(list: List<Channel>, auto: Boolean) {
         all = list
         val names = list.map { it.group }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
         groups = listOf(ALL, FAV) + names
-        val idx = groups.indexOf(prefs.lastGroup)
+        val idx = if (section == Section.LIVE) groups.indexOf(prefs.lastGroup) else -1
         groupIndex = if (idx < 0) 0 else idx
         applyFilter()
-        info.text = "${list.size} canales"
+        updateInfo()
         hideStatus()
 
-        if (current == null) {
+        if (auto && current == null) {
             val last = prefs.lastUrl
             val ch = list.firstOrNull { it.url == last }
             if (ch != null) {
@@ -249,6 +336,14 @@ class MainActivity : AppCompatActivity() {
             } else if (list.isNotEmpty()) {
                 openPanel()
             }
+        }
+    }
+
+    private fun updateInfo() {
+        info.text = if (inEpisodes) {
+            "${all.size} episodios"
+        } else {
+            "${all.size} ${section.noun}"
         }
     }
 
@@ -271,6 +366,7 @@ class MainActivity : AppCompatActivity() {
         channelAdapter.notifyDataSetChanged()
     }
 
+    /** Descarga de nuevo los canales en directo. */
     private fun refresh(silent: Boolean) {
         if (!silent) showStatus("Descargando lista…")
         io.execute {
@@ -282,11 +378,13 @@ class MainActivity : AppCompatActivity() {
                         favs = LinkedHashSet(it)
                         prefs.saveFavs(favs)
                     }
-                    setChannels(list)
+                    liveList = list
+                    if (section == Section.LIVE) setChannels(list, true) else hideStatus()
+                    updateSectionButtons()
                 }
             } catch (e: Exception) {
                 ui.post {
-                    if (all.isEmpty()) {
+                    if (liveList.isEmpty()) {
                         showStatus(
                             "No se pudo cargar la lista\n${e.message ?: e.javaClass.simpleName}\n\n" +
                                 "Toca la pantalla o pulsa OK para abrir los ajustes."
@@ -300,15 +398,135 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------------------------------------------------------------- secciones
+
+    private fun updateSectionButtons() {
+        sectionRow.visibility = if (repo.xtreamMode()) View.VISIBLE else View.GONE
+        fun mark(b: Button, s: Section) {
+            b.text = (if (section == s) "● " else "") + s.label
+        }
+        mark(btnLive, Section.LIVE)
+        mark(btnMovies, Section.MOVIES)
+        mark(btnSeries, Section.SERIES)
+    }
+
+    private fun switchSection(sec: Section, force: Boolean = false) {
+        inEpisodes = false
+        section = sec
+        updateSectionButtons()
+        val token = ++loadToken
+
+        if (sec == Section.LIVE) {
+            setChannels(liveList, false)
+            focusChannel(0)
+            return
+        }
+
+        val cached = if (force) null else lists[sec]
+        if (cached != null) {
+            setChannels(cached, false)
+            focusChannel(0)
+            return
+        }
+
+        all = emptyList()
+        shown = emptyList()
+        groups = listOf(ALL, FAV)
+        groupIndex = 0
+        refreshLists()
+        info.text = ""
+        showStatus("Cargando ${sec.noun}…\nLa primera vez puede tardar un poco.")
+        io.execute {
+            try {
+                val list = repo.loadVodSection(sec, force)
+                ui.post {
+                    if (token != loadToken) return@post
+                    lists[sec] = list
+                    setChannels(list, false)
+                    focusChannel(0)
+                }
+            } catch (e: Exception) {
+                ui.post {
+                    if (token != loadToken) return@post
+                    section = Section.LIVE
+                    updateSectionButtons()
+                    setChannels(liveList, false)
+                    showStatus(
+                        "No se pudieron cargar las ${sec.noun}\n${e.message ?: e.javaClass.simpleName}"
+                    )
+                    ui.postDelayed({ hideStatus() }, 5000)
+                }
+            }
+        }
+    }
+
+    private fun openSeries(ch: Channel) {
+        val id = ch.url.removePrefix(SERIES_SCHEME)
+        showStatus("Cargando episodios de «${ch.name}»…")
+        val token = ++loadToken
+        io.execute {
+            try {
+                val eps = repo.loadEpisodes(id)
+                ui.post {
+                    if (token != loadToken) return@post
+                    enterEpisodes(ch.name, eps)
+                }
+            } catch (e: Exception) {
+                ui.post {
+                    if (token != loadToken) return@post
+                    showStatus("No se pudo abrir la serie\n${e.message ?: e.javaClass.simpleName}")
+                    ui.postDelayed({ hideStatus() }, 4000)
+                }
+            }
+        }
+    }
+
+    private fun enterEpisodes(title: String, eps: List<Channel>) {
+        if (!inEpisodes) {
+            savedAll = all
+            savedGroups = groups
+            savedIndex = groupIndex
+        }
+        inEpisodes = true
+        all = eps
+        val seasons = eps.map { it.group }.distinct()
+            .sortedBy { s -> s.filter { it.isDigit() }.toIntOrNull() ?: 0 }
+        groups = listOf(BACK) + seasons
+        groupIndex = 1.coerceAtMost(groups.size - 1)
+        applyFilter()
+        info.text = title
+        hideStatus()
+        focusChannel(0)
+    }
+
+    private fun leaveEpisodes() {
+        if (!inEpisodes) return
+        inEpisodes = false
+        all = savedAll
+        groups = savedGroups
+        groupIndex = savedIndex
+        applyFilter()
+        updateInfo()
+    }
+
     private fun onGroupClick(pos: Int) {
+        if (inEpisodes && pos == 0) {
+            leaveEpisodes()
+            focusChannel(0)
+            return
+        }
         groupIndex = pos
-        prefs.lastGroup = groups[pos]
+        if (section == Section.LIVE) prefs.lastGroup = groups[pos]
         applyFilter()
         focusChannel(0)
     }
 
     private fun onChannelClick(pos: Int) {
         val ch = shown.getOrNull(pos) ?: return
+        if (ch.url.startsWith(SERIES_SCHEME)) {
+            openSeries(ch)
+            return
+        }
         play(ch)
         closePanel()
     }
@@ -396,9 +614,10 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+        val downRepeat = event.action == KeyEvent.ACTION_DOWN
 
         if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-            if (down) player?.let { it.playWhenReady = !it.playWhenReady }
+            if (down) togglePause()
             return true
         }
 
@@ -406,6 +625,37 @@ class MainActivity : AppCompatActivity() {
             if (code == KeyEvent.KEYCODE_MENU) {
                 if (down) favFocused()
                 return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
+
+        if (vodPlaying) {
+            when (code) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    if (down) togglePause()
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                    if (downRepeat) seekBy(-15000)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                    if (downRepeat) seekBy(30000)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> {
+                    if (down) openPanel()
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                    if (down) step(1)
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                    if (down) step(-1)
+                    return true
+                }
             }
             return super.dispatchKeyEvent(event)
         }
@@ -422,7 +672,7 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MENU -> {
                 if (down) {
-                    if (all.isEmpty()) openSetup() else openPanel()
+                    if (liveList.isEmpty() && all.isEmpty()) openSetup() else openPanel()
                 }
                 return true
             }
@@ -432,6 +682,17 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("OVERRIDE_DEPRECATION")
     override fun onBackPressed() {
-        if (panelVisible) closePanel() else super.onBackPressed()
+        when {
+            panelVisible -> closePanel()
+            vodPlaying -> {
+                // Atrás durante una película o serie: para y vuelve al menú.
+                player?.stop()
+                current = null
+                vodPlaying = false
+                hideStatus()
+                openPanel()
+            }
+            else -> super.onBackPressed()
+        }
     }
 }

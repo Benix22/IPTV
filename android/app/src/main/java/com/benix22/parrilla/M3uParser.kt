@@ -5,14 +5,16 @@ object M3uParser {
     private val attr = Regex("([\\w-]+)=\"([^\"]*)\"")
     private val scheme = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")
 
-    fun parse(text: String): List<Channel> {
+    fun parse(text: String): List<Channel> = parseLines(text.lineSequence())
+
+    fun parseLines(lines: Sequence<String>): List<Channel> {
         val out = ArrayList<Channel>()
         var name = ""
         var group = ""
         var logo = ""
         var have = false
 
-        for (raw in text.lineSequence()) {
+        for (raw in lines) {
             val l = raw.trim()
             if (l.isEmpty()) continue
 
