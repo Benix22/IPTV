@@ -3,11 +3,10 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [android-tv]
+    branches: [android-tv, main]
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
-    tags: ['tv-v*']
 
 permissions:
   contents: write
@@ -39,11 +38,12 @@ jobs:
           name: parrilla-tv-apk
           path: parrilla-tv.apk
 
-      - name: Publicar release
-        if: startsWith(github.ref, 'refs/tags/tv-v')
+      - name: Publicar release fija (tv-latest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" parrilla-tv.apk \
-            --title "Parrilla TV ${GITHUB_REF_NAME}" \
-            --notes "APK para Fire Stick y Android TV. Instálalo con la app Downloader o con adb install."
+          gh release delete tv-latest --cleanup-tag --yes || true
+          gh release create tv-latest parrilla-tv.apk \
+            --target "$GITHUB_SHA" --latest \
+            --title "Parrilla TV (última versión)" \
+            --notes "APK para Fire Stick y Android TV, compilado desde ${GITHUB_SHA::7}. Instálalo con la app Downloader o con adb install."
