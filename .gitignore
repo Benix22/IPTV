@@ -3,3 +3,8 @@ node_modules/
 *.db
 *.db-wal
 *.db-shm
+
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

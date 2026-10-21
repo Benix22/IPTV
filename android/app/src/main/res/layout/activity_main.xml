@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:keepScreenOn="true">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:focusable="false"
+        app:resize_mode="fit"
+        app:show_buffering="never"
+        app:use_controller="false" />
+
+    <TextView
+        android:id="@+id/osd"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="32dp"
+        android:background="@color/osd_bg"
+        android:maxWidth="600dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="10dp"
+        android:textColor="@color/text"
+        android:textSize="26sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@color/osd_bg"
+        android:gravity="center"
+        android:maxWidth="760dp"
+        android:padding="24dp"
+        android:textColor="@color/text"
+        android:textSize="24sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/panel"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:background="@color/panel_bg"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ajustes" />
+
+            <Button
+                android:id="@+id/btnRefresh"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="Actualizar lista" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="6dp"
+            android:textColor="@color/muted"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/groupList"
+                android:layout_width="240dp"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingEnd="8dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channelList"
+                android:layout_width="440dp"
+                android:layout_height="match_parent"
+                android:clipToPadding="false" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="OK: elegir  |  Menú o mantener OK: favorito  |  Atrás: cerrar"
+            android:textColor="@color/muted"
+            android:textSize="14sp" />
+    </LinearLayout>
+</FrameLayout>

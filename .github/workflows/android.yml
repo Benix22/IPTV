@@ -1,0 +1,49 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-tv]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+    tags: ['tv-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Compilar APK
+        working-directory: android
+        run: gradle --no-daemon assembleRelease
+
+      - name: Nombrar el APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk parrilla-tv.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parrilla-tv-apk
+          path: parrilla-tv.apk
+
+      - name: Publicar release
+        if: startsWith(github.ref, 'refs/tags/tv-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" parrilla-tv.apk \
+            --title "Parrilla TV ${GITHUB_REF_NAME}" \
+            --notes "APK para Fire Stick y Android TV. Instálalo con la app Downloader o con adb install."
