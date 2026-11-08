@@ -17,10 +17,10 @@ class CardAdapter(
 ) : RecyclerView.Adapter<CardAdapter.VH>() {
 
     companion object {
-        const val POSTER_W = 150
-        const val POSTER_H = 225
-        const val WIDE_W = 220
-        const val WIDE_H = 124
+        const val POSTER_W = 112
+        const val POSTER_H = 168
+        const val WIDE_W = 168
+        const val WIDE_H = 94
     }
 
     var size = 0
@@ -40,11 +40,6 @@ class CardAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_card, parent, false)
-        v.setOnFocusChangeListener { view, focused ->
-            val s = if (focused) 1.07f else 1f
-            view.animate().scaleX(s).scaleY(s).setDuration(120).start()
-            if (focused) view.elevation = 8f else view.elevation = 0f
-        }
         return VH(v)
     }
 
@@ -76,7 +71,7 @@ class CardAdapter(
         h.img.scaleType = if (poster) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
         h.img.setPadding(0, 0, 0, 0)
         if (!poster) {
-            val pad = (10 * d).toInt()
+            val pad = (8 * d).toInt()
             h.img.setPadding(pad, pad, pad, pad)
         }
 

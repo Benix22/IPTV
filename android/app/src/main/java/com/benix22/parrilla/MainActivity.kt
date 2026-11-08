@@ -432,8 +432,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun spanFor(poster: Boolean): Int {
         val d = resources.displayMetrics.density
-        val avail = resources.displayMetrics.widthPixels - (80 + 240 + 24) * d
-        val cell = ((if (poster) CardAdapter.POSTER_W else CardAdapter.WIDE_W) + 22) * d
+        val avail = resources.displayMetrics.widthPixels - (56 + 190 + 16 + 24) * d
+        val cell = ((if (poster) CardAdapter.POSTER_W else CardAdapter.WIDE_W) + 14) * d
         return (avail / cell).toInt().coerceAtLeast(2)
     }
 
