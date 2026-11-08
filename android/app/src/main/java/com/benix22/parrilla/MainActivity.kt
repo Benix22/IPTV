@@ -25,6 +25,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.util.concurrent.Executors
@@ -85,7 +86,7 @@ class MainActivity : AppCompatActivity() {
         onClick = { pos -> onGroupClick(pos) },
         onLong = { }
     )
-    private val channelAdapter = RowAdapter(
+    private val channelAdapter = CardAdapter(
         onClick = { pos -> onChannelClick(pos) },
         onLong = { pos -> toggleFav(pos) }
     )
@@ -134,23 +135,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         groupAdapter.label = { i -> groups[i] }
-        channelAdapter.label = { i ->
-            val c = shown[i]
-            when {
-                c.url.startsWith(SERIES_SCHEME) -> (if (favs.contains(c.url)) "★ " else "") + c.name + "  ›"
-                favs.contains(c.url) -> "★ " + c.name
-                else -> c.name
-            }
-        }
+        channelAdapter.title = { i -> shown[i].name }
+        channelAdapter.logo = { i -> shown[i].logo }
+        channelAdapter.fav = { i -> favs.contains(shown[i].url) }
 
         groupList.layoutManager = LinearLayoutManager(this)
         groupList.adapter = groupAdapter
-        channelList.layoutManager = LinearLayoutManager(this)
+        channelList.layoutManager = GridLayoutManager(this, 4)
         channelList.adapter = channelAdapter
 
         btnLive.setOnClickListener { switchSection(Section.LIVE) }
         btnMovies.setOnClickListener { switchSection(Section.MOVIES) }
         btnSeries.setOnClickListener { switchSection(Section.SERIES) }
+        findViewById<Button>(R.id.btnClose).setOnClickListener { closePanel() }
         findViewById<Button>(R.id.btnTracks).setOnClickListener { showTrackMenu() }
         findViewById<Button>(R.id.btnSettings).setOnClickListener { openSetup() }
         findViewById<Button>(R.id.btnRefresh).setOnClickListener {
@@ -424,12 +421,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var seriesTitle = ""
+
     private fun updateInfo() {
-        info.text = if (inEpisodes) {
-            "${all.size} episodios"
-        } else {
-            "${all.size} ${section.noun}"
-        }
+        val g = groups.getOrElse(groupIndex) { ALL }
+        val head = if (inEpisodes) seriesTitle else section.label
+        val where = if (g == ALL || inEpisodes && g == BACK) "" else "  ·  $g"
+        info.text = head + where + "  ·  ${shown.size}"
+    }
+
+    private fun spanFor(poster: Boolean): Int {
+        val d = resources.displayMetrics.density
+        val avail = resources.displayMetrics.widthPixels - (80 + 240 + 24) * d
+        val cell = ((if (poster) CardAdapter.POSTER_W else CardAdapter.WIDE_W) + 22) * d
+        return (avail / cell).toInt().coerceAtLeast(2)
     }
 
     private fun applyFilter() {
@@ -446,6 +451,10 @@ class MainActivity : AppCompatActivity() {
         groupAdapter.size = groups.size
         groupAdapter.selected = groupIndex
         groupAdapter.notifyDataSetChanged()
+        val poster = !inEpisodes && section != Section.LIVE
+        channelAdapter.poster = poster
+        (channelList.layoutManager as GridLayoutManager).spanCount = spanFor(poster)
+        updateInfo()
         channelAdapter.size = shown.size
         channelAdapter.selected = shown.indexOfFirst { it.url == current?.url }
         channelAdapter.notifyDataSetChanged()
@@ -488,7 +497,8 @@ class MainActivity : AppCompatActivity() {
     private fun updateSectionButtons() {
         sectionRow.visibility = if (repo.xtreamMode()) View.VISIBLE else View.GONE
         fun mark(b: Button, s: Section) {
-            b.text = (if (section == s) "● " else "") + s.label
+            b.text = s.label
+            b.isSelected = section == s
         }
         mark(btnLive, Section.LIVE)
         mark(btnMovies, Section.MOVIES)
@@ -579,7 +589,8 @@ class MainActivity : AppCompatActivity() {
         groups = listOf(BACK) + seasons
         groupIndex = 1.coerceAtMost(groups.size - 1)
         applyFilter()
-        info.text = title
+        seriesTitle = title
+        updateInfo()
         hideStatus()
         focusChannel(0)
     }
@@ -652,6 +663,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPanel() {
+        val playingLive = current != null && !vodPlaying
+        panel.setBackgroundColor(if (playingLive) 0xEE0B0D12.toInt() else 0xFF0B0D12.toInt())
+        findViewById<View>(R.id.btnClose).visibility = if (current != null) View.VISIBLE else View.GONE
         panel.visibility = View.VISIBLE
         panelVisible = true
         val idx = shown.indexOfFirst { it.url == current?.url }
